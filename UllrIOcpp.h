@@ -29,4 +29,8 @@ namespace UllrIOcpp
     unsigned long long fnv_hash_1a_64(const void* key, int len);
     Errors writeEntireFile(const void* data, size_t size, const char* filePath);
     Errors writeEntireFile(const std::vector<Byte>& data, const char* filePath);
+    Errors readEntireFileCheckSum(void* data, size_t size, const char* filePath);
+    Errors readEntireFileCheckSum(std::vector<Byte>& data, const char* filePath);
+    Errors writeEntireFileCheckSum(const void* data, size_t size, const char* filePath);
+    Errors writeEntireFileCheckSum(const std::vector<Byte>& data, const char* filePath);
 }
