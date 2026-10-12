@@ -1,7 +1,9 @@
 #include "UllrIOcpp.h"
+#include <filesystem>
 #include <ios>
 #include <iostream>
 #include <limits>
+#include <system_error>
 #include <vector>
 #include <algorithm>
 #include <fstream>
@@ -250,4 +252,175 @@ namespace UllrIOcpp
     // Safe Loading using the previous checkSum functions
     // ===================================================
 
+
+    Errors safeSaveNoBackup(const void* data, size_t size, const char* filePathWithExtension)
+    {
+        namespace fs = std::filesystem;
+
+        fs::path path(filePathWithExtension);
+
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
+
+        auto file1 = path.parent_path() / (path.stem().string() + "1" + ext);
+        auto tmpFile = path.parent_path() / (path.stem().string() + "1.tmp");
+
+        auto err = writeEntireFileCheckSum(data, size, tmpFile.string().c_str());
+
+        if (err != noError)
+            return err;
+
+        std::error_code renameError;
+        fs::rename(tmpFile, file1, renameError);
+
+        if (renameError)
+            return couldNotOpenFile;
+
+        return noError;
+    }
+
+    Errors safeSaveNoBackup(std::vector<Byte>& data, const char* filePathWithExtension)
+    {
+        return safeSaveNoBackup(data.data(), data.size(), filePathWithExtension);
+    }
+
+    Errors safeSave(const void* data, size_t size, const char* filePathWithExtension, bool reportNotMakingBackupAsError)
+    {
+        namespace fs = std::filesystem;
+
+        fs::path path(filePathWithExtension);
+
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
+
+        auto file1 = path.parent_path() / (path.stem().string() + "1" + ext);
+        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+        auto tmpFile = path.parent_path() / (path.stem().string() + "1.tmp");
+
+        auto err = writeEntireFileCheckSum(data, size, tmpFile.string().c_str());
+
+        if (err != noError)
+            return err;
+
+        std::error_code renameError;
+        fs::rename(tmpFile, file1, renameError);
+
+        if (renameError)
+            return couldNotOpenFile;
+
+        std::error_code errorCode;
+        fs::copy_file(file1, file2, fs::copy_options::overwrite_existing, errorCode);
+
+        if(errorCode)
+            return reportNotMakingBackupAsError ? couldNotMakeBackup : noError;
+
+        return noError;
+    }
+
+    Errors safeSave(const std::vector<char>& data, const char* filePathWithExtension, bool reportNotMakingBackupAsError)
+    {
+        return safeSave(data.data(), data.size(), filePathWithExtension, reportNotMakingBackupAsError);
+    }
+
+    Errors safeLoadBackup(void* data, size_t size, const char* filePathWithExtension)
+    {
+        namespace fs = std::filesystem;
+
+        fs::path path(filePathWithExtension);
+
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
+
+        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+
+        auto err2 = readEntireFileCheckSum(data,  size, file2.string().c_str());
+
+        return err2;
+    }
+
+
+    Errors safeLoad(void* data, size_t size, const char* filePathWithExtension, bool reportBackupAsError)
+    {
+        namespace fs = std::filesystem;
+
+        fs::path path(filePathWithExtension);
+
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
+
+        auto file1 = path.parent_path() / (path.stem().string() + "1" + ext);
+        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+
+        auto err = readEntireFileCheckSum(data, size, file1.string().c_str());
+
+        if (err == noError)
+            return noError;
+
+        auto err2 = readEntireFileCheckSum(data,  size, file2.string().c_str());
+
+        if (err2 == noError)
+        {
+            if (reportBackupAsError)
+                return readBackup;
+            else
+                return noError;
+        }
+
+        if (err2 == couldNotOpenFile)
+            return err;
+
+        return err2;
+    }
+
+    Errors safeLoad(std::vector<Byte>& data, const char* filePathWithExtension, bool reportBackupError)
+    {
+        namespace fs = std::filesystem;
+
+        data.clear();
+
+        fs::path path(filePathWithExtension);
+
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
+
+        auto file1 = path.parent_path() / (path.stem().string() + "1" + ext);
+        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+
+        auto err = readEntireFileCheckSum(data, file1.string().c_str());
+
+        if (err == noError)
+            return noError;
+
+        auto err2 = readEntireFileCheckSum(data, file2.string().c_str());
+
+        if (err2 == noError)
+        {
+            if (reportBackupError)
+                return readBackup;
+            else
+                return noError;
+        }
+
+        if (err2 == couldNotOpenFile)
+            return err;
+
+        return err2;
+    }
+    // --- Forwarders
+Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* name) {
+    return safeSaveNoBackup(data.data(), data.size(), name);
 }
+Errors safeLoadBackup(std::vector<Byte>& data, const char* name) {
+    namespace fs = std::filesystem;
+    data.clear();
+
+    fs::path path(name);
+
+    std::string ext = path.extension().string();
+    if (ext.empty()) ext = ".bin";
+
+    auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+    return readEntireFileCheckSum(data, file2.string().c_str());
+}
+}
+
