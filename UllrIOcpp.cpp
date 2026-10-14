@@ -1,4 +1,5 @@
 #include "UllrIOcpp.h"
+#include <cstdint>
 #include <filesystem>
 #include <ios>
 #include <iostream>
@@ -20,9 +21,9 @@ namespace UllrIOcpp
         "checkSumFail",
         "couldNotMakeBackup",
         "readBackup",
-        "entryAlreadyExists",
-        "entryNotFound",
-        "entryDifferentDataType",
+        "dataFormatValueAlreadyExists",
+        "dataFormatValueNotFound",
+        "dataFormatValueDifferentDataType",
         "couldNotParseData",
         "fileSizeNotBigEnough"
     };
@@ -407,20 +408,904 @@ namespace UllrIOcpp
         return err2;
     }
     // --- Forwarders
-Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* name) {
-    return safeSaveNoBackup(data.data(), data.size(), name);
-}
-Errors safeLoadBackup(std::vector<Byte>& data, const char* name) {
-    namespace fs = std::filesystem;
-    data.clear();
+    Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* name) {
+        return safeSaveNoBackup(data.data(), data.size(), name);
+    }
+    Errors safeLoadBackup(std::vector<Byte>& data, const char* name) {
+        namespace fs = std::filesystem;
+        data.clear();
 
-    fs::path path(name);
+        fs::path path(name);
 
-    std::string ext = path.extension().string();
-    if (ext.empty()) ext = ".bin";
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
 
-    auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
-    return readEntireFileCheckSum(data, file2.string().c_str());
-}
+        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+        return readEntireFileCheckSum(data, file2.string().c_str());
+    }
+
+    //=====================================================
+    //SERIALIZATION AND DESERIALIZATION BINARY MAP FORMAT
+    //=====================================================
+
+    bool BinaryDataFormat::MapValueFormat::operator== (const MapValueFormat &other) const
+    {
+        if (type != other.type)
+            return false;
+
+        switch (type)
+        {
+            case Types::noType: { break; }
+            case Types::rawBytesType: { if (data != other.data) { return false; } break; }
+            case Types::boolType: { if (primitives.boolData != other.primitives.boolData) { return false; } break; }
+            case Types::intType: { if (primitives.int32Data != other.primitives.int32Data) { return false; } break; }
+            case Types::uintType: { if (primitives.uint32Data != other.primitives.uint32Data) { return false; } break; }
+            case Types::int64Type: { if (primitives.int64Data != other.primitives.int64Data) { return false; } break; }
+            case Types::uint64Type: { if (primitives.uint64Data != other.primitives.uint64Data) { return false; } break; }
+            case Types::floatType: { if (primitives.floatData != other.primitives.floatData) { return false; } break; }
+            case Types::doubleType: { if (primitives.doubleData != other.primitives.doubleData) { return false; } break; }
+            case Types::charType: { if (primitives.charData != other.primitives.charData) { return false; } break; }
+            case Types::ucharType: { if (primitives.uCharData != other.primitives.uCharData) { return false; } break; }
+            case Types::stringType: { if (data != other.data) { return false; } break; }
+
+            case Types::vec2Type: { if (primitives.vec.x != other.primitives.vec.x ||
+                                        primitives.vec.y != other.primitives.vec.y)
+                                      { return false; } break; }
+            case Types::vec3Type: { if (primitives.vec.x != other.primitives.vec.x ||
+                                        primitives.vec.y != other.primitives.vec.y ||
+                                        primitives.vec.z != other.primitives.vec.z)
+                                      { return false; } break; }
+            case Types::vec4Type: { if (primitives.vec.x != other.primitives.vec.x ||
+                                        primitives.vec.y != other.primitives.vec.y ||
+                                        primitives.vec.z != other.primitives.vec.z ||
+                                        primitives.vec.w != other.primitives.vec.w)
+                                      { return false; } break; }
+            case Types::ivec2Type: { if (primitives.ivec.x != other.primitives.ivec.x ||
+                                         primitives.ivec.y != other.primitives.ivec.y)
+                                       { return false; } break; }
+            case Types::ivec3Type: { if (primitives.ivec.x != other.primitives.ivec.x ||
+                                         primitives.ivec.y != other.primitives.ivec.y ||
+                                         primitives.ivec.z != other.primitives.ivec.z)
+                                       { return false; } break; }
+            case Types::ivec4Type: { if (primitives.ivec.x != other.primitives.ivec.x ||
+                                         primitives.ivec.y != other.primitives.ivec.y ||
+                                         primitives.ivec.z != other.primitives.ivec.z ||
+                                         primitives.ivec.w != other.primitives.ivec.w)
+                                       { return false; } break; }
+            case Types::keyValueType: { if (data != other.data) { return false; } break; }
+
+            default: { return false; }
+        }
+
+        return true;
+
+    }
+
+
+    bool BinaryDataFormat::operator== (const BinaryDataFormat& other) const
+    {
+        if (umData.size() != other.umData.size())
+            return false;
+
+        for (const auto& a : umData)
+        {
+            const auto found = other.umData.find(a.first);
+            if (found == other.umData.end())
+                return false;
+
+            if (a.second != found->second)
+                return false;
+        }
+
+        return true;
+    }
+
+    bool BinaryDataFormat::valueExists(std::string at)
+    {
+        return umData.find(at) != umData.end();
+    }
+
+    //===========Getters and Setters===============
+
+    Errors BinaryDataFormat::getMapValueFormatType(std::string at, MapValueFormat::Types& type)
+    {
+        type = MapValueFormat::Types::noType;
+
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        type = it->second.type;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Raw Bytes
+    //==================================================
+
+    Errors BinaryDataFormat::setRawBytes(std::string at, const std::vector<Byte>& bytes)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::rawBytesType;
+            it->second.data = bytes;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::rawBytesType;
+        mvf.data = bytes;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getRawBytes(std::string at, std::vector<Byte>& bytes)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::rawBytesType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        bytes = it->second.data;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Boolean
+    //==================================================
+
+    Errors BinaryDataFormat::setBool(std::string at, bool b)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::boolType;
+            it->second.data.clear();
+            it->second.primitives.boolData = b;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::boolType;
+        mvf.primitives.boolData = b;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getBool(std::string at, bool& b)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::boolType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        b = it->second.primitives.boolData;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Int32
+    //==================================================
+
+    Errors BinaryDataFormat::setInt32(std::string at, std::int32_t i)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::intType;
+            it->second.data.clear();
+            it->second.primitives.int32Data = i;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::intType;
+        mvf.primitives.int32Data = i;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getInt32(std::string at, std::int32_t& i)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::intType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        i = it->second.primitives.int32Data;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // UInt32
+    //==================================================
+
+    Errors BinaryDataFormat::setUInt32(std::string at, std::uint32_t i)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::uintType;
+            it->second.data.clear();
+            it->second.primitives.uint32Data = i;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::uintType;
+        mvf.primitives.uint32Data = i;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getUInt32(std::string at, std::uint32_t& i)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::uintType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        i = it->second.primitives.uint32Data;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Int64
+    //==================================================
+
+    Errors BinaryDataFormat::setInt64(std::string at, std::int64_t i)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::int64Type;
+            it->second.data.clear();
+            it->second.primitives.int64Data = i;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::int64Type;
+        mvf.primitives.int64Data = i;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getInt64(std::string at, std::int64_t& i)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::int64Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        i = it->second.primitives.int64Data;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // UInt64
+    //==================================================
+
+    Errors BinaryDataFormat::setUInt64(std::string at, std::uint64_t i)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::uint64Type;
+            it->second.data.clear();
+            it->second.primitives.uint64Data = i;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::uint64Type;
+        mvf.primitives.uint64Data = i;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getUInt64(std::string at, std::uint64_t& i)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::uint64Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        i = it->second.primitives.uint64Data;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Float
+    //==================================================
+
+    Errors BinaryDataFormat::setFloat(std::string at, float f)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::floatType;
+            it->second.data.clear();
+            it->second.primitives.floatData = f;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::floatType;
+        mvf.primitives.floatData = f;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getFloat(std::string at, float& f)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::floatType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        f = it->second.primitives.floatData;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Double
+    //==================================================
+
+    Errors BinaryDataFormat::setDouble(std::string at, double d)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::doubleType;
+            it->second.data.clear();
+            it->second.primitives.doubleData = d;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::doubleType;
+        mvf.primitives.doubleData = d;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getDouble(std::string at, double& d)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::doubleType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        d = it->second.primitives.doubleData;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Char
+    //==================================================
+
+    Errors BinaryDataFormat::setChar(std::string at, char c)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::charType;
+            it->second.data.clear();
+            it->second.primitives.charData = c;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::charType;
+        mvf.primitives.charData = c;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getChar(std::string at, char& c)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::charType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        c = it->second.primitives.charData;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Unsigned Char
+    //==================================================
+
+    Errors BinaryDataFormat::setUChar(std::string at, unsigned char c)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::ucharType;
+            it->second.data.clear();
+            it->second.primitives.uCharData = c;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::ucharType;
+        mvf.primitives.uCharData = c;
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getUChar(std::string at, unsigned char& c)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::ucharType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        c = it->second.primitives.uCharData;
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // String
+    //==================================================
+
+    Errors BinaryDataFormat::setString(std::string at, const std::string& s)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::stringType;
+            it->second.data.assign(s.begin(), s.end());
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::stringType;
+        mvf.data.assign(s.begin(), s.end());
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getString(std::string at, std::string& s)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::stringType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        s.assign(it->second.data.begin(), it->second.data.end());
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Vec2
+    //==================================================
+
+    Errors BinaryDataFormat::setVec2(std::string at, float x, float y)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::vec2Type;
+            it->second.data.clear();
+
+            it->second.primitives.vec.x = x;
+            it->second.primitives.vec.y = y;
+
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::vec2Type;
+
+        mvf.primitives.vec.x = x;
+        mvf.primitives.vec.y = y;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getVec2(std::string at, float& x, float& y)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::vec2Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        x = it->second.primitives.vec.x;
+        y = it->second.primitives.vec.y;
+
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Vec3
+    //==================================================
+
+    Errors BinaryDataFormat::setVec3(std::string at, float x, float y, float z)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::vec3Type;
+            it->second.data.clear();
+
+            it->second.primitives.vec.x = x;
+            it->second.primitives.vec.y = y;
+            it->second.primitives.vec.z = z;
+
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::vec3Type;
+
+        mvf.primitives.vec.x = x;
+        mvf.primitives.vec.y = y;
+        mvf.primitives.vec.z = z;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getVec3(std::string at, float& x, float& y, float& z)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::vec3Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        x = it->second.primitives.vec.x;
+        y = it->second.primitives.vec.y;
+        z = it->second.primitives.vec.z;
+
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Vec4
+    //==================================================
+
+    Errors BinaryDataFormat::setVec4(std::string at, float x, float y, float z, float w)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::vec4Type;
+            it->second.data.clear();
+
+            it->second.primitives.vec.x = x;
+            it->second.primitives.vec.y = y;
+            it->second.primitives.vec.z = z;
+            it->second.primitives.vec.w = w;
+
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::vec4Type;
+
+        mvf.primitives.vec.x = x;
+        mvf.primitives.vec.y = y;
+        mvf.primitives.vec.z = z;
+        mvf.primitives.vec.w = w;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getVec4(std::string at, float& x, float& y, float& z, float& w)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::vec4Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        x = it->second.primitives.vec.x;
+        y = it->second.primitives.vec.y;
+        z = it->second.primitives.vec.z;
+        w = it->second.primitives.vec.w;
+
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // IVec2
+    //==================================================
+
+    Errors BinaryDataFormat::setIVec2(std::string at, int x, int y)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::ivec2Type;
+            it->second.data.clear();
+
+            it->second.primitives.ivec.x = x;
+            it->second.primitives.ivec.y = y;
+
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::ivec2Type;
+
+        mvf.primitives.ivec.x = x;
+        mvf.primitives.ivec.y = y;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getIVec2(std::string at, int& x, int& y)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::ivec2Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        x = it->second.primitives.ivec.x;
+        y = it->second.primitives.ivec.y;
+
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // IVec3
+    //==================================================
+
+    Errors BinaryDataFormat::setIVec3(std::string at, int x, int y, int z)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::ivec3Type;
+            it->second.data.clear();
+
+            it->second.primitives.ivec.x = x;
+            it->second.primitives.ivec.y = y;
+            it->second.primitives.ivec.z = z;
+
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::ivec3Type;
+
+        mvf.primitives.ivec.x = x;
+        mvf.primitives.ivec.y = y;
+        mvf.primitives.ivec.z = z;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getIVec3(std::string at, int& x, int& y, int& z)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::ivec3Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        x = it->second.primitives.ivec.x;
+        y = it->second.primitives.ivec.y;
+        z = it->second.primitives.ivec.z;
+
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // IVec4
+    //==================================================
+
+    Errors BinaryDataFormat::setIVec4(std::string at, int x, int y, int z, int w)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::ivec4Type;
+            it->second.data.clear();
+
+            it->second.primitives.ivec.x = x;
+            it->second.primitives.ivec.y = y;
+            it->second.primitives.ivec.z = z;
+            it->second.primitives.ivec.w = w;
+
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::ivec4Type;
+
+        mvf.primitives.ivec.x = x;
+        mvf.primitives.ivec.y = y;
+        mvf.primitives.ivec.z = z;
+        mvf.primitives.ivec.w = w;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getIVec4(std::string at, int& x, int& y, int& z, int& w)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::ivec4Type)
+            return Errors::dataFormatValueDifferentDataType;
+
+        x = it->second.primitives.ivec.x;
+        y = it->second.primitives.ivec.y;
+        z = it->second.primitives.ivec.z;
+        w = it->second.primitives.ivec.w;
+
+        return Errors::noError;
+    }
+
+
+    //==================================================
+    // Key-Value Payload
+    //==================================================
+
+    Errors BinaryDataFormat::setKeyValue(std::string at, const std::vector<Byte>& bytes)
+    {
+        auto it = umData.find(at);
+
+        if (it != umData.end())
+        {
+            it->second.type = MapValueFormat::Types::keyValueType;
+            it->second.data = bytes;
+            return Errors::dataFormatValueAlreadyExists;
+        }
+
+        MapValueFormat mvf = {};
+        mvf.type = MapValueFormat::Types::keyValueType;
+        mvf.data = bytes;
+
+        umData.insert({at, std::move(mvf)});
+
+        return Errors::noError;
+    }
+
+    Errors BinaryDataFormat::getKeyValue(std::string at, std::vector<Byte>& bytes)
+    {
+        auto it = umData.find(at);
+
+        if (it == umData.end())
+            return Errors::dataFormatValueNotFound;
+
+        if (it->second.type != MapValueFormat::Types::keyValueType)
+            return Errors::dataFormatValueDifferentDataType;
+
+        bytes = it->second.data;
+        return Errors::noError;
+    }
+
+    //==================================
+    //SERIALIZER AND DESERIALIZER
+    //==================================
+
+    Errors BinaryDataFormat::deserializeFromFileData(Byte data, size_t size)
+    {
+        //reset current object in case of previous read fail
+        *this = {};
+
+        std::string currentName = {};
+
+        for (Byte byte {data}; byte < data; byte++)
+        {
+            bool readingName = true;
+
+            if (byte == 0)
+                readingName = false;
+            else
+                currentName.push_back(byte);
+        }
+    }
 }
 
