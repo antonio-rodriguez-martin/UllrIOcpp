@@ -30,7 +30,7 @@ namespace UllrIOcpp
     Errors readEntireFile(std::vector<Byte>& data, const char* filePath);
     Errors writeEntireFile(const void* data, size_t size, const char* filePath);
 
-    unsigned long long fnv_hash_1a_64(const void* key, int len);
+    unsigned long long fnv_hash_1a_64(const void* key, size_t len);
     Errors writeEntireFile(const void* data, size_t size, const char* filePath);
     Errors writeEntireFile(const std::vector<Byte>& data, const char* filePath);
 
@@ -39,18 +39,17 @@ namespace UllrIOcpp
     Errors writeEntireFileCheckSum(const void* data, size_t size, const char* filePath);
     Errors writeEntireFileCheckSum(const std::vector<Byte>& data, const char* filePath);
 
-    Errors safeSaveNoBackup(const void* data, size_t size, const char* filePathWithExtension);
-    Errors safeSaveNoBackup(std::vector<Byte>& data, const char* filePathWithExtension);
+    Errors safeLoadBackup(std::vector<Byte>& data, const char* filePath);
     Errors safeLoadBackup(void* data, size_t size, const char* filePathWithExtension);
     Errors safeSave(const void* data, size_t size, const char* filePathWithExtension, bool reportNotMakingBackupAsError);
-    Errors safeSave(const std::vector<char>& data, const char* filePathWithExtension, bool reportNotMakingBackupAsError);
-    Errors safeLoad(void* data, size_t size, const char* filePathWithExtension);
-    Errors safeLoad(std::vector<Byte>& data, const char* filePathWithExtension);
+    Errors safeSave(const std::vector<Byte>& data, const char* filePathWithExtension, bool reportNotMakingBackupAsError);
+    Errors safeLoad(void* data, size_t size, const char* filePathWithExtension, bool reportBackupAsError);
+    Errors safeLoad(std::vector<Byte>& data, const char* filePathWithExtension, bool reportBackupError);
 
-    Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* name);
-    Errors safeLoadBackup(std::vector<Byte>& data, const char* name);
+    Errors safeSaveNoBackup(const void* data, size_t size, const char* filePathWithExtension);
+    Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* filePathWithExtension);
 
-    //helper functions and struct
+    //helper functions and Cursor struct
     struct ReadCursor
     {
         const Byte* current;
@@ -271,14 +270,13 @@ namespace UllrIOcpp
         Errors setKeyValue(std::string at, const std::vector<Byte>& bytes);
         Errors getKeyValue(std::string at, std::vector<Byte>& bytes);
 
-        //SERIALIZER AND DESERIALIZER
-        //Cursor
-
-
         static bool serializeMapValue(const MapValueFormat& value, std::vector<Byte>& output);
         static bool deserializeMapValue(MapValueFormat::Types type, ReadCursor& cursor, MapValueFormat& value);
 
         Errors serializeToFileData(std::vector<Byte>& output);
         Errors deserializeFromFileData(const Byte* data, size_t size);
     };
+
+    Errors safeLoad(BinaryDataFormat& data, const char* filePath, bool reportNotMakingBackupAsError);
+    Errors safeSave(BinaryDataFormat& data, const char* filePath, bool reportNotMakingBackupAsError);
 }

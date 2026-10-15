@@ -405,7 +405,7 @@ static void test_safe_roundtrip() {
     const char* name = "t_rt";
     cleanAll(name);
 
-    std::vector<char> payload = {'h','e','l','l','o'};
+    std::vector<Byte> payload = {'h','e','l','l','o'};
     CHECK_EQ(safeSave(payload, name, false), noError);
 
     auto t = pathsFor(name);
@@ -432,7 +432,7 @@ static void test_backup_recovery_silent() {
     const char* name = "t_brs";
     cleanAll(name);
 
-    std::vector<char> payload = {'o','r','i','g','i','n','a','l'};
+    std::vector<Byte> payload = {'o','r','i','g','i','n','a','l'};
     CHECK_EQ(safeSave(payload, name, false), noError);
 
     auto t = pathsFor(name);
@@ -450,7 +450,7 @@ static void test_backup_recovery_reported() {
     const char* name = "t_brr";
     cleanAll(name);
 
-    std::vector<char> payload = {'o','r','i','g','i','n','a','l'};
+    std::vector<Byte> payload = {'o','r','i','g','i','n','a','l'};
     CHECK_EQ(safeSave(payload, name, false), noError);
 
     auto t = pathsFor(name);
@@ -469,7 +469,7 @@ static void test_both_corrupt() {
     const char* name = "t_bc";
     cleanAll(name);
 
-    std::vector<char> payload = {'x','y','z'};
+    std::vector<Byte> payload = {'x','y','z'};
     CHECK_EQ(safeSave(payload, name, false), noError);
 
     auto t = pathsFor(name);
@@ -492,7 +492,7 @@ static void test_primary_missing() {
     const char* name = "t_pm";
     cleanAll(name);
 
-    std::vector<char> payload = {1,2,3,4};
+    std::vector<Byte> payload = {1,2,3,4};
     CHECK_EQ(safeSave(payload, name, false), noError);
 
     auto t = pathsFor(name);
@@ -514,7 +514,7 @@ static void test_backup_fail_silent() {
     // Make file2 a directory — copy_file cannot overwrite a directory with a file.
     fs::create_directory(t.file2);
 
-    std::vector<char> payload = {'a','b','c'};
+    std::vector<Byte> payload = {'a','b','c'};
     CHECK_EQ(safeSave(payload, name, /*reportBackupError=*/false), noError);
 
     // Primary must still be valid and complete.
@@ -537,7 +537,7 @@ static void test_backup_fail_reported() {
     auto t = pathsFor(name);
     fs::create_directory(t.file2);
 
-    std::vector<char> payload = {'a','b','c'};
+    std::vector<Byte> payload = {'a','b','c'};
     CHECK_EQ(safeSave(payload, name, /*reportBackupError=*/true), couldNotMakeBackup);
 
     // Even though the return code is an error, the primary is valid.
@@ -557,7 +557,7 @@ static void test_crash_tmp_ignored() {
     const char* name = "t_crash";
     cleanAll(name);
 
-    std::vector<char> good = {'g','o','o','d','\0','d','a','t','a'};
+    std::vector<Byte> good = {'g','o','o','d','\0','d','a','t','a'};
     CHECK_EQ(safeSave(good, name, false), noError);
 
     // Simulate a crash: leave garbage in the tmp file after a valid save.
@@ -579,7 +579,7 @@ static void test_load_backup_directly() {
     const char* name = "t_lbd";
     cleanAll(name);
 
-    std::vector<char> payload = {'b','a','c','k','u','p'};
+    std::vector<Byte> payload = {'b','a','c','k','u','p'};
     CHECK_EQ(safeSave(payload, name, false), noError);
 
     auto t = pathsFor(name);
@@ -606,7 +606,7 @@ static void test_safe_empty_payload() {
     const char* name = "t_empty";
     cleanAll(name);
 
-    std::vector<char> empty;
+    std::vector<Byte> empty;
     CHECK_EQ(safeSave(empty, name, false), noError);
 
     auto t = pathsFor(name);
@@ -627,7 +627,7 @@ static void test_path_variants() {
     {
         const char* name = "t_path_a";
         cleanAll(name);
-        std::vector<char> p = {1};
+        std::vector<Byte> p = {1};
         CHECK_EQ(safeSave(p, name, false), noError);
         CHECK(myExists("t_path_a1.bin"));
         CHECK(myExists("t_path_a2.bin"));
@@ -639,7 +639,7 @@ static void test_path_variants() {
     {
         const char* name = "t_path_b.bin";
         cleanAll(name);
-        std::vector<char> p = {1};
+        std::vector<Byte> p = {1};
         CHECK_EQ(safeSave(p, name, false), noError);
         CHECK(myExists("t_path_b1.bin"));
         CHECK(myExists("t_path_b2.bin"));
@@ -651,7 +651,7 @@ static void test_path_variants() {
         fs::create_directory("t_path_dir");
         const char* name = "t_path_dir/save.bin";
         cleanAll(name);
-        std::vector<char> p = {1};
+        std::vector<Byte> p = {1};
         CHECK_EQ(safeSave(p, name, false), noError);
         CHECK(myExists("t_path_dir/save1.bin"));
         CHECK(myExists("t_path_dir/save2.bin"));
@@ -664,7 +664,7 @@ static void test_path_variants() {
     {
         const char* name = "t_multi.data.bin";
         cleanAll(name);
-        std::vector<char> p = {1};
+        std::vector<Byte> p = {1};
         CHECK_EQ(safeSave(p, name, false), noError);
         CHECK(myExists("t_multi.data1.bin"));   // <-- number goes before last dot
         CHECK(myExists("t_multi.data2.bin"));
@@ -716,7 +716,7 @@ static void test_repeated_saves() {
     cleanAll(name);
 
     for (int i = 0; i < 5; i++) {
-        std::vector<char> p(10, (char)i);
+        std::vector<Byte> p(10, (char)i);
         CHECK_EQ(safeSave(p, name, false), noError);
 
         std::vector<Byte> loaded;
@@ -731,7 +731,649 @@ static void test_repeated_saves() {
     cleanAll(name);
 }
 
+// ============================================================
+// MAP LAYER TESTS
+// ============================================================
 
+static bool doRoundtrip(BinaryDataFormat& src, BinaryDataFormat& dst) {
+    std::vector<Byte> bytes;
+    if (src.serializeToFileData(bytes) != noError) return false;
+    return dst.deserializeFromFileData(bytes.data(), bytes.size()) == noError;
+}
+
+static void test_map_empty() {
+    std::printf("test_map_empty\n");
+    BinaryDataFormat m;
+    std::vector<Byte> bytes;
+    CHECK_EQ(m.serializeToFileData(bytes), noError);
+
+    // Just the entry count: 4 bytes of zero.
+    CHECK_EQ(bytes.size(), (size_t)4);
+    CHECK_EQ(bytes[0], 0); CHECK_EQ(bytes[1], 0);
+    CHECK_EQ(bytes[2], 0); CHECK_EQ(bytes[3], 0);
+
+    BinaryDataFormat m2;
+    CHECK_EQ(m2.deserializeFromFileData(bytes.data(), bytes.size()), noError);
+    CHECK(m2.umData.empty());
+}
+
+static void test_map_single_int() {
+    std::printf("test_map_single_int\n");
+    BinaryDataFormat m;
+    CHECK_EQ(m.setInt32("x", 42), noError);
+
+    std::vector<Byte> bytes;
+    CHECK_EQ(m.serializeToFileData(bytes), noError);
+    // 4 count + 4 keySize + 1 key + 4 type + 4 payloadSize + 4 payload = 21
+    CHECK_EQ(bytes.size(), (size_t)21);
+
+    BinaryDataFormat m2;
+    CHECK_EQ(m2.deserializeFromFileData(bytes.data(), bytes.size()), noError);
+
+    std::int32_t v = -1;
+    CHECK_EQ(m2.getInt32("x", v), noError);
+    CHECK_EQ(v, 42);
+}
+
+static void test_map_many_ints() {
+    std::printf("test_map_many_ints\n");
+    BinaryDataFormat m;
+    for (int i = 0; i < 20; i++) {
+        std::string k = "key" + std::to_string(i);
+        CHECK_EQ(m.setInt32(k, i * 100), noError);
+    }
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+    CHECK_EQ(m2.umData.size(), (size_t)20);
+    for (int i = 0; i < 20; i++) {
+        std::string k = "key" + std::to_string(i);
+        std::int32_t v = -1;
+        CHECK_EQ(m2.getInt32(k, v), noError);
+        CHECK_EQ(v, i * 100);
+    }
+}
+
+static void test_map_overwrite() {
+    std::printf("test_map_overwrite\n");
+    BinaryDataFormat m;
+    CHECK_EQ(m.setInt32("x", 1), noError);
+    CHECK_EQ(m.setInt32("x", 2), dataFormatValueAlreadyExists);
+    CHECK_EQ(m.umData.size(), (size_t)1);
+
+    std::int32_t v = 0;
+    CHECK_EQ(m.getInt32("x", v), noError);
+    CHECK_EQ(v, 2);
+}
+
+static void test_type_bool() {
+    std::printf("test_type_bool\n");
+    BinaryDataFormat m;
+    m.setBool("t", true);
+    m.setBool("f", false);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    bool b = false;
+    CHECK_EQ(m2.getBool("t", b), noError); CHECK_EQ(b, true);
+    CHECK_EQ(m2.getBool("f", b), noError); CHECK_EQ(b, false);
+}
+
+static void test_type_int32() {
+    std::printf("test_type_int32\n");
+    BinaryDataFormat m;
+    m.setInt32("min", std::numeric_limits<std::int32_t>::min());
+    m.setInt32("max", std::numeric_limits<std::int32_t>::max());
+    m.setInt32("neg", -12345);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    std::int32_t v = 0;
+    CHECK_EQ(m2.getInt32("min", v), noError);
+    CHECK_EQ(v, std::numeric_limits<std::int32_t>::min());
+    CHECK_EQ(m2.getInt32("max", v), noError);
+    CHECK_EQ(v, std::numeric_limits<std::int32_t>::max());
+    CHECK_EQ(m2.getInt32("neg", v), noError);
+    CHECK_EQ(v, -12345);
+}
+
+static void test_type_uint32() {
+    std::printf("test_type_uint32\n");
+    BinaryDataFormat m;
+    m.setUInt32("zero", 0u);
+    m.setUInt32("max", std::numeric_limits<std::uint32_t>::max());
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    std::uint32_t v = 0;
+    CHECK_EQ(m2.getUInt32("zero", v), noError); CHECK_EQ(v, 0u);
+    CHECK_EQ(m2.getUInt32("max", v), noError);
+    CHECK_EQ(v, std::numeric_limits<std::uint32_t>::max());
+}
+
+static void test_type_int64() {
+    std::printf("test_type_int64\n");
+    BinaryDataFormat m;
+    m.setInt64("neg", INT64_C(-987654321012345678));
+    m.setInt64("max", std::numeric_limits<std::int64_t>::max());
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    std::int64_t v = 0;
+    CHECK_EQ(m2.getInt64("neg", v), noError);
+    CHECK_EQ(v, INT64_C(-987654321012345678));
+    CHECK_EQ(m2.getInt64("max", v), noError);
+    CHECK_EQ(v, std::numeric_limits<std::int64_t>::max());
+}
+
+static void test_type_uint64() {
+    std::printf("test_type_uint64\n");
+    BinaryDataFormat m;
+    m.setUInt64("max", std::numeric_limits<std::uint64_t>::max());
+    m.setUInt64("mid", UINT64_C(0xDEADBEEFCAFEBABE));
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    std::uint64_t v = 0;
+    CHECK_EQ(m2.getUInt64("max", v), noError);
+    CHECK_EQ(v, std::numeric_limits<std::uint64_t>::max());
+    CHECK_EQ(m2.getUInt64("mid", v), noError);
+    CHECK_EQ(v, UINT64_C(0xDEADBEEFCAFEBABE));
+}
+
+static void test_type_float() {
+    std::printf("test_type_float\n");
+    BinaryDataFormat m;
+    m.setFloat("pi", 3.14159f);
+    m.setFloat("neg", -0.5f);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    float v = 0;
+    CHECK_EQ(m2.getFloat("pi", v), noError);
+    CHECK(v == 3.14159f);   // bit-exact for round-tripped float
+    CHECK_EQ(m2.getFloat("neg", v), noError);
+    CHECK(v == -0.5f);
+}
+
+static void test_type_double() {
+    std::printf("test_type_double\n");
+    BinaryDataFormat m;
+    m.setDouble("e", 2.718281828459045);
+    m.setDouble("tiny", 1e-300);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    double v = 0;
+    CHECK_EQ(m2.getDouble("e", v), noError);
+    CHECK(v == 2.718281828459045);
+    CHECK_EQ(m2.getDouble("tiny", v), noError);
+    CHECK(v == 1e-300);
+}
+
+static void test_type_char_uchar() {
+    std::printf("test_type_char_uchar\n");
+    BinaryDataFormat m;
+    m.setChar("a", 'A');
+    m.setUChar("b", 200);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    char c = 0;
+    CHECK_EQ(m2.getChar("a", c), noError); CHECK_EQ(c, 'A');
+    unsigned char u = 0;
+    CHECK_EQ(m2.getUChar("b", u), noError); CHECK_EQ(u, (unsigned char)200);
+}
+
+static void test_type_string() {
+    std::printf("test_type_string\n");
+    BinaryDataFormat m;
+    m.setString("empty", "");
+    m.setString("ascii", "hello world");
+    m.setString("with_null", std::string("a\0b", 3));  // embedded NUL
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    std::string s;
+    CHECK_EQ(m2.getString("empty", s), noError);
+    CHECK(s.empty());
+    CHECK_EQ(m2.getString("ascii", s), noError);
+    CHECK(s == "hello world");
+    CHECK_EQ(m2.getString("with_null", s), noError);
+    CHECK_EQ(s.size(), (size_t)3);
+    CHECK(s[0] == 'a'); CHECK(s[1] == '\0'); CHECK(s[2] == 'b');
+}
+
+static void test_type_raw_bytes() {
+    std::printf("test_type_raw_bytes\n");
+    std::vector<Byte> payload = {0x00, 0xFF, 0x42, 0x13, 0x37};
+    BinaryDataFormat m;
+    m.setRawBytes("blob", payload);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    std::vector<Byte> out;
+    CHECK_EQ(m2.getRawBytes("blob", out), noError);
+    CHECK(out == payload);
+}
+
+static void test_type_vec234() {
+    std::printf("test_type_vec234\n");
+    BinaryDataFormat m;
+    m.setVec2("v2", 1.0f, 2.0f);
+    m.setVec3("v3", 1.0f, 2.0f, 3.0f);
+    m.setVec4("v4", 1.0f, 2.0f, 3.0f, 4.0f);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    float x, y, z, w;
+    CHECK_EQ(m2.getVec2("v2", x, y), noError);
+    CHECK(x == 1.0f && y == 2.0f);
+    CHECK_EQ(m2.getVec3("v3", x, y, z), noError);
+    CHECK(x == 1.0f && y == 2.0f && z == 3.0f);
+    CHECK_EQ(m2.getVec4("v4", x, y, z, w), noError);
+    CHECK(x == 1.0f && y == 2.0f && z == 3.0f && w == 4.0f);
+}
+
+static void test_type_ivec234() {
+    std::printf("test_type_ivec234\n");
+    BinaryDataFormat m;
+    m.setIVec2("v2", -1, 2);
+    m.setIVec3("v3", -1, 2, -3);
+    m.setIVec4("v4", -1, 2, -3, 4);
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+
+    int x, y, z, w;
+    CHECK_EQ(m2.getIVec2("v2", x, y), noError);
+    CHECK(x == -1 && y == 2);
+    CHECK_EQ(m2.getIVec3("v3", x, y, z), noError);
+    CHECK(x == -1 && y == 2 && z == -3);
+    CHECK_EQ(m2.getIVec4("v4", x, y, z, w), noError);
+    CHECK(x == -1 && y == 2 && z == -3 && w == 4);
+}
+
+static void test_type_keyvalue() {
+    std::printf("test_type_keyvalue\n");
+    // Serialize an inner map into bytes, store it as a keyValue value
+    BinaryDataFormat inner;
+    inner.setInt32("hp", 100);
+    inner.setString("name", "bob");
+
+    std::vector<Byte> innerBytes;
+    CHECK_EQ(inner.serializeToFileData(innerBytes), noError);
+
+    BinaryDataFormat outer;
+    outer.setKeyValue("player", innerBytes);
+
+    BinaryDataFormat outer2;
+    CHECK(doRoundtrip(outer, outer2));
+
+    std::vector<Byte> retrieved;
+    CHECK_EQ(outer2.getKeyValue("player", retrieved), noError);
+    CHECK(retrieved == innerBytes);
+
+    // Decode the inner bytes and verify
+    BinaryDataFormat inner2;
+    CHECK_EQ(inner2.deserializeFromFileData(retrieved.data(), retrieved.size()),
+             noError);
+    std::int32_t hp = 0;
+    CHECK_EQ(inner2.getInt32("hp", hp), noError);
+    CHECK_EQ(hp, 100);
+}
+
+static void test_map_mixed() {
+    std::printf("test_map_mixed\n");
+    BinaryDataFormat m;
+    m.setInt32("health", 100);
+    m.setFloat("gravity", 9.8f);
+    m.setBool("alive", true);
+    m.setString("name", "player one");
+    m.setInt64("score", INT64_C(1234567890123));
+    m.setVec3("position", 1.5f, 2.5f, -3.5f);
+    m.setIVec2("tile", 12, 34);
+    m.setRawBytes("blob", {0x01, 0x02, 0x03});
+
+    BinaryDataFormat m2;
+    CHECK(doRoundtrip(m, m2));
+    CHECK(m == m2);
+
+    // Spot-check a few values
+    std::int32_t i = 0;
+    CHECK_EQ(m2.getInt32("health", i), noError); CHECK_EQ(i, 100);
+    std::string s;
+    CHECK_EQ(m2.getString("name", s), noError); CHECK(s == "player one");
+}
+
+static void test_equality() {
+    std::printf("test_equality\n");
+    BinaryDataFormat a, b;
+    CHECK(a == b);
+
+    a.setInt32("x", 1);
+    CHECK(a != b);
+
+    b.setInt32("x", 1);
+    CHECK(a == b);
+
+    b.setInt32("x", 2);
+    CHECK(a != b);
+
+    // Different key, same value
+    BinaryDataFormat c, d;
+    c.setInt32("x", 5);
+    d.setInt32("y", 5);
+    CHECK(c != d);
+
+    // Different types, same logical value
+    BinaryDataFormat e, f;
+    e.setInt32("x", 0);
+    f.setBool("x", false);
+    CHECK(e != f);
+}
+
+static void test_missing_key() {
+    std::printf("test_missing_key\n");
+    BinaryDataFormat m;
+    m.setInt32("present", 5);
+
+    std::int32_t v = -999;
+    CHECK_EQ(m.getInt32("absent", v), dataFormatValueNotFound);
+    CHECK_EQ(v, -999);      // untouched
+
+    CHECK(m.valueExists("present"));
+    CHECK(!m.valueExists("absent"));
+}
+
+static void test_wrong_type() {
+    std::printf("test_wrong_type\n");
+    BinaryDataFormat m;
+    m.setInt32("x", 42);
+
+    // Getting a different type than what was set
+    float f = -999.0f;
+    CHECK_EQ(m.getFloat("x", f), dataFormatValueDifferentDataType);
+    CHECK(f == -999.0f);
+
+    std::string s = "untouched";
+    CHECK_EQ(m.getString("x", s), dataFormatValueDifferentDataType);
+    CHECK(s == "untouched");
+
+    std::vector<Byte> b = {0xFF};
+    CHECK_EQ(m.getRawBytes("x", b), dataFormatValueDifferentDataType);
+    CHECK(b == std::vector<Byte>{0xFF});
+}
+
+static void test_get_type() {
+    std::printf("test_get_type\n");
+    BinaryDataFormat m;
+    m.setInt32("i", 0);
+    m.setFloat("f", 0);
+    m.setString("s", "");
+
+    BinaryDataFormat::MapValueFormat::Types t;
+
+    CHECK_EQ(m.getMapValueFormatType("i", t), noError);
+    CHECK(t == BinaryDataFormat::MapValueFormat::Types::intType);
+
+    CHECK_EQ(m.getMapValueFormatType("f", t), noError);
+    CHECK(t == BinaryDataFormat::MapValueFormat::Types::floatType);
+
+    CHECK_EQ(m.getMapValueFormatType("s", t), noError);
+    CHECK(t == BinaryDataFormat::MapValueFormat::Types::stringType);
+
+    t = BinaryDataFormat::MapValueFormat::Types::intType;
+    CHECK_EQ(m.getMapValueFormatType("nope", t), dataFormatValueNotFound);
+    CHECK(t == BinaryDataFormat::MapValueFormat::Types::noType);  // reset
+}
+
+static void test_deser_truncated() {
+    std::printf("test_deser_truncated\n");
+
+    // Empty buffer
+    {
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(nullptr, 0), fileSizeNotBigEnough);
+    }
+
+    // Fewer than 4 bytes (no entry count)
+    {
+        Byte buf[3] = {0, 0, 0};
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(buf, 3), fileSizeNotBigEnough);
+    }
+
+    // Says 1 entry but nothing follows
+    {
+        std::vector<Byte> buf;
+        writeU32LE(buf, 1);
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+                 fileSizeNotBigEnough);
+    }
+
+    // Valid up to keySize, but key bytes missing
+    {
+        std::vector<Byte> buf;
+        writeU32LE(buf, 1);         // count
+        writeU32LE(buf, 5);         // keySize = 5 but no key follows
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+                 fileSizeNotBigEnough);
+    }
+
+    // Valid header, but payload truncated
+    {
+        std::vector<Byte> buf;
+        writeU32LE(buf, 1);
+        writeU32LE(buf, 1); buf.push_back('x');
+        writeU32LE(buf, 3);         // intType
+        writeU32LE(buf, 4);         // payloadSize = 4
+        buf.push_back(0);           // only 1 byte of payload
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+                 fileSizeNotBigEnough);
+    }
+}
+
+static void test_deser_bad_type() {
+    std::printf("test_deser_bad_type\n");
+    std::vector<Byte> buf;
+    writeU32LE(buf, 1);             // count
+    writeU32LE(buf, 1); buf.push_back('x');
+    writeU32LE(buf, 99);            // invalid type tag
+    writeU32LE(buf, 0);             // payloadSize = 0
+
+    BinaryDataFormat m;
+    CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+             couldNotParseData);
+}
+
+static void test_deser_wrong_payload_size() {
+    std::printf("test_deser_wrong_payload_size\n");
+
+    // intType with payloadSize = 3 (should be 4)
+    {
+        std::vector<Byte> buf;
+        writeU32LE(buf, 1);
+        writeU32LE(buf, 1); buf.push_back('x');
+        writeU32LE(buf, 3);         // intType
+        writeU32LE(buf, 3);         // wrong payloadSize
+        buf.push_back(0); buf.push_back(0); buf.push_back(0);
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+                 couldNotParseData);
+    }
+
+    // intType with payloadSize = 5 (should be 4) — extra bytes must fail
+    {
+        std::vector<Byte> buf;
+        writeU32LE(buf, 1);
+        writeU32LE(buf, 1); buf.push_back('x');
+        writeU32LE(buf, 3);         // intType
+        writeU32LE(buf, 5);         // too many
+        for (int i = 0; i < 5; i++) buf.push_back(0);
+        BinaryDataFormat m;
+        CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+                 couldNotParseData);
+    }
+}
+
+static void test_deser_duplicate_key() {
+    std::printf("test_deser_duplicate_key\n");
+    std::vector<Byte> buf;
+    writeU32LE(buf, 2);             // count = 2
+
+    // Entry 1: "x" = int 1
+    writeU32LE(buf, 1); buf.push_back('x');
+    writeU32LE(buf, 3);             // intType
+    writeU32LE(buf, 4);
+    writeI32LE(buf, 1);
+
+    // Entry 2: "x" = int 2 (same key!)
+    writeU32LE(buf, 1); buf.push_back('x');
+    writeU32LE(buf, 3);
+    writeU32LE(buf, 4);
+    writeI32LE(buf, 2);
+
+    BinaryDataFormat m;
+    CHECK_EQ(m.deserializeFromFileData(buf.data(), buf.size()),
+             dataFormatValueAlreadyExists);
+}
+
+static void test_deser_trailing_bytes() {
+    std::printf("test_deser_trailing_bytes\n");
+
+    // Build a valid serialization, then append garbage
+    BinaryDataFormat src;
+    src.setInt32("x", 42);
+    std::vector<Byte> buf;
+    src.serializeToFileData(buf);
+    buf.push_back(0xFF);
+
+    BinaryDataFormat dst;
+    CHECK_EQ(dst.deserializeFromFileData(buf.data(), buf.size()),
+             fileSizeNotMatch);
+}
+
+static void test_deser_preserves_on_failure() {
+    std::printf("test_deser_preserves_on_failure\n");
+    BinaryDataFormat m;
+    m.setInt32("keep", 111);
+
+    // Feed it garbage
+    Byte bad[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    CHECK(m.deserializeFromFileData(bad, 4) != noError);
+
+    // Original data must survive a failed deserialize
+    std::int32_t v = 0;
+    CHECK_EQ(m.getInt32("keep", v), noError);
+    CHECK_EQ(v, 111);
+}
+
+static void test_bridge_roundtrip() {
+    std::printf("test_bridge_roundtrip\n");
+    const char* name = "t_map_rt";
+    cleanAll(name);
+
+    BinaryDataFormat m;
+    m.setInt32("hp", 100);
+    m.setString("name", "player");
+    m.setBool("alive", true);
+
+    CHECK_EQ(safeSave(m, name, false), noError);
+
+    BinaryDataFormat m2;
+    CHECK_EQ(safeLoad(m2, name, false), noError);
+    CHECK(m == m2);
+
+    cleanAll(name);
+}
+
+static void test_bridge_backup_recovery() {
+    std::printf("test_bridge_backup_recovery\n");
+    const char* name = "t_map_br";
+    cleanAll(name);
+
+    BinaryDataFormat m;
+    m.setInt32("hp", 100);
+    m.setString("name", "player");
+
+    CHECK_EQ(safeSave(m, name, false), noError);
+
+    // Corrupt file1
+    auto t = pathsFor(name);
+    flipByte(t.file1, 0);
+
+    // Load — should recover from backup and not return an error
+    BinaryDataFormat m2;
+    CHECK_EQ(safeLoad(m2, name, false), noError);
+    CHECK(m == m2);
+
+    // Same but with reportBackupAsError = true
+    BinaryDataFormat m3;
+    CHECK_EQ(safeLoad(m3, name, true), readBackup);
+    CHECK(m == m3);
+
+    cleanAll(name);
+}
+
+static void test_bridge_both_corrupt() {
+    std::printf("test_bridge_both_corrupt\n");
+    const char* name = "t_map_bc";
+    cleanAll(name);
+
+    BinaryDataFormat m;
+    m.setInt32("hp", 100);
+    CHECK_EQ(safeSave(m, name, false), noError);
+
+    auto t = pathsFor(name);
+    flipByte(t.file1, 0);
+    flipByte(t.file2, 0);
+
+    BinaryDataFormat m2;
+    CHECK_EQ(safeLoad(m2, name, false), checkSumFail);
+
+    cleanAll(name);
+}
+
+static void test_bridge_overwrite() {
+    std::printf("test_bridge_overwrite\n");
+    const char* name = "t_map_ov";
+    cleanAll(name);
+
+    BinaryDataFormat first;
+    first.setInt32("a", 1);
+    first.setInt32("b", 2);
+    CHECK_EQ(safeSave(first, name, false), noError);
+
+    BinaryDataFormat second;
+    second.setInt32("c", 3);
+    CHECK_EQ(safeSave(second, name, false), noError);
+
+    BinaryDataFormat loaded;
+    CHECK_EQ(safeLoad(loaded, name, false), noError);
+
+    // The second save completely replaced the first
+    CHECK(loaded == second);
+    CHECK(!loaded.valueExists("a"));
+    CHECK(!loaded.valueExists("b"));
+    CHECK(loaded.valueExists("c"));
+
+    cleanAll(name);
+}
 
 
 // ---------------------------------------------------------------------------
@@ -766,6 +1408,46 @@ int main() {
     test_path_variants();
     test_load_nonexistent();
     test_repeated_saves();
+
+    std::printf("\n=== map layer ===\n");
+    test_map_empty();
+    test_map_single_int();
+    test_map_many_ints();
+    test_map_overwrite();
+
+    test_type_bool();
+    test_type_int32();
+    test_type_uint32();
+    test_type_int64();
+    test_type_uint64();
+    test_type_float();
+    test_type_double();
+    test_type_char_uchar();
+    test_type_string();
+    test_type_raw_bytes();
+    test_type_vec234();
+    test_type_ivec234();
+    test_type_keyvalue();
+    test_map_mixed();
+
+    test_equality();
+
+    test_missing_key();
+    test_wrong_type();
+    test_get_type();
+
+    test_deser_truncated();
+    test_deser_bad_type();
+    test_deser_wrong_payload_size();
+    test_deser_duplicate_key();
+    test_deser_trailing_bytes();
+    test_deser_preserves_on_failure();
+
+    std::printf("\n=== map <-> safe bridge ===\n");
+    test_bridge_roundtrip();
+    test_bridge_backup_recovery();
+    test_bridge_both_corrupt();
+    test_bridge_overwrite();
 
 
     if (g_failures == 0) std::printf("\nALL PASS\n");

@@ -2,14 +2,15 @@
 #include <cstdint>
 #include <filesystem>
 #include <ios>
+#include <iosfwd>
 #include <iostream>
 #include <limits>
 #include <system_error>
 #include <vector>
 #include <algorithm>
 #include <fstream>
-#define NOMINMAX
-#include <Windows.h>
+#include <bit>
+#include <utility>
 
 namespace UllrIOcpp
 {
@@ -69,7 +70,13 @@ namespace UllrIOcpp
         {
             //setting the position to the end and then the start for the size and then read
             f.seekg(0, std::ios_base::end);
-            size_t readSize = f.tellg();
+            std::streampos end = f.tellg();
+
+            if (end < std::streampos{0})
+                return fileSizeNotBigEnough;
+
+            size_t readSize = static_cast<size_t>(end);
+
             f.seekg(0, std::ios_base::beg);
 
             f.read((char*)data, std::min(size, readSize));
@@ -88,7 +95,13 @@ namespace UllrIOcpp
         if(f.is_open())
         {
             f.seekg(0, std::ios_base::end);
-            size_t size = f.tellg();
+            std::streampos end = f.tellg();
+
+            if (end < std::streampos{0})
+                return fileSizeNotBigEnough;
+
+            size_t size = static_cast<size_t>(end);
+
             f.seekg(0, std::ios_base::beg);
 
             if((std::streampos)size < 0)
@@ -141,14 +154,14 @@ namespace UllrIOcpp
     using HashTyped = std::uint64_t;
 
     //algorithm for hashing the checksum
-    unsigned long long fnv_hash_1a_64(const void* key, int len)
+    unsigned long long fnv_hash_1a_64(const void* key, size_t len)
 	{
 		const unsigned char* p = (const unsigned char*)key;
 		unsigned long long h = 0xcbf29ce484222325ULL;
 
         size_t i = 0;
 
-        for (; len - i >= 4; i += 4)
+        for (; i + 4 <= len; i += 4)
         {
             h = (h ^ p[i + 0]) * 0x100000001b3ULL;
             h = (h ^ p[i + 1]) * 0x100000001b3ULL;
@@ -280,7 +293,7 @@ namespace UllrIOcpp
         return noError;
     }
 
-    Errors safeSaveNoBackup(std::vector<Byte>& data, const char* filePathWithExtension)
+    Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* filePathWithExtension)
     {
         return safeSaveNoBackup(data.data(), data.size(), filePathWithExtension);
     }
@@ -318,7 +331,7 @@ namespace UllrIOcpp
         return noError;
     }
 
-    Errors safeSave(const std::vector<char>& data, const char* filePathWithExtension, bool reportNotMakingBackupAsError)
+    Errors safeSave(const std::vector<Byte>& data, const char* filePathWithExtension, bool reportNotMakingBackupAsError)
     {
         return safeSave(data.data(), data.size(), filePathWithExtension, reportNotMakingBackupAsError);
     }
@@ -339,6 +352,19 @@ namespace UllrIOcpp
         return err2;
     }
 
+    Errors safeLoadBackup(std::vector<Byte>& data, const char* filePath)
+    {
+        namespace fs = std::filesystem;
+        data.clear();
+
+        fs::path path(filePath);
+
+        std::string ext = path.extension().string();
+        if (ext.empty()) ext = ".bin";
+
+        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
+        return readEntireFileCheckSum(data, file2.string().c_str());
+    }
 
     Errors safeLoad(void* data, size_t size, const char* filePathWithExtension, bool reportBackupAsError)
     {
@@ -406,22 +432,6 @@ namespace UllrIOcpp
             return err;
 
         return err2;
-    }
-    // --- Forwarders
-    Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* name) {
-        return safeSaveNoBackup(data.data(), data.size(), name);
-    }
-    Errors safeLoadBackup(std::vector<Byte>& data, const char* name) {
-        namespace fs = std::filesystem;
-        data.clear();
-
-        fs::path path(name);
-
-        std::string ext = path.extension().string();
-        if (ext.empty()) ext = ".bin";
-
-        auto file2 = path.parent_path() / (path.stem().string() + "2" + ext);
-        return readEntireFileCheckSum(data, file2.string().c_str());
     }
 
     //=====================================================
@@ -1535,6 +1545,8 @@ namespace UllrIOcpp
                 writeI32LE(output, value.primitives.ivec.z);
                 writeI32LE(output, value.primitives.ivec.w);
                 return true;
+
+            default: return false;
         }
     }
 
@@ -1550,7 +1562,7 @@ namespace UllrIOcpp
         switch (type)
         {
             case Types::noType:
-                break;
+                return false;
 
             case Types::rawBytesType:
             case Types::stringType:
@@ -1855,6 +1867,37 @@ namespace UllrIOcpp
         umData = std::move(result);
 
         return noError;
+    }
+
+    //Wrapper for Saving the binary data safely
+    Errors safeSave(BinaryDataFormat& data, const char* filePath, bool reportNotMakingBackupAsError)
+    {
+        std::vector<Byte> bytes {};
+        auto res = data.serializeToFileData(bytes);
+
+        if (res != noError)
+            return res;
+
+        return safeSave(bytes.data(), bytes.size(), filePath, reportNotMakingBackupAsError);
+    }
+
+    //Wrapper for Reading the binary data safely
+    Errors safeLoad(BinaryDataFormat& data, const char* filePath, bool reportNotMakingBackupAsError)
+    {
+        std::vector<Byte> bytes {};
+        auto loadRes = safeLoad(bytes, filePath, reportNotMakingBackupAsError);
+
+        if (loadRes != noError && loadRes != readBackup)
+            return loadRes;
+
+        auto deseriRes = data.deserializeFromFileData(bytes.data(), bytes.size());
+
+        if (deseriRes != noError)
+            return deseriRes;
+
+        return loadRes;
+
+
     }
 }
 
