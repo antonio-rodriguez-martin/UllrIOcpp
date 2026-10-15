@@ -1375,6 +1375,200 @@ static void test_bridge_overwrite() {
     cleanAll(name);
 }
 
+// ============================================================
+// DUMP UTILITY — writes files and leaves them for inspection
+// ============================================================
+
+static void printHexRow(const std::vector<Byte>& v, size_t start, size_t count) {
+    // Offset
+    std::printf("%08zX  ", start);
+
+    // Hex bytes
+    for (size_t i = 0; i < count; i++) {
+        std::printf("%02X ", v[start + i]);
+        if (i == 7) std::printf(" ");   // extra space at the halfway mark
+    }
+    // Pad if the last row is short
+    for (size_t i = count; i < 16; i++) {
+        std::printf("   ");
+        if (i == 7) std::printf(" ");
+    }
+
+    // ASCII column
+    std::printf(" |");
+    for (size_t i = 0; i < count; i++) {
+        Byte b = v[start + i];
+        std::printf("%c", (b >= 32 && b < 127) ? (char)b : '.');
+    }
+    std::printf("|\n");
+}
+
+static void hexdump(const std::vector<Byte>& v, const char* label) {
+    std::printf("\n--- %s (%zu bytes) ---\n", label, v.size());
+    for (size_t i = 0; i < v.size(); i += 16) {
+        size_t count = std::min((size_t)16, v.size() - i);
+        printHexRow(v, i, count);
+    }
+}
+
+static const char* typeName(std::uint32_t t) {
+    using T = BinaryDataFormat::MapValueFormat::Types;
+    switch ((T)t) {
+        case T::noType:       return "noType";
+        case T::rawBytesType: return "rawBytes";
+        case T::boolType:     return "bool";
+        case T::intType:      return "int32";
+        case T::uintType:     return "uint32";
+        case T::int64Type:    return "int64";
+        case T::uint64Type:   return "uint64";
+        case T::floatType:    return "float";
+        case T::doubleType:   return "double";
+        case T::charType:     return "char";
+        case T::ucharType:    return "uchar";
+        case T::stringType:   return "string";
+        case T::vec2Type:     return "vec2";
+        case T::vec3Type:     return "vec3";
+        case T::vec4Type:     return "vec4";
+        case T::ivec2Type:    return "ivec2";
+        case T::ivec3Type:    return "ivec3";
+        case T::ivec4Type:    return "ivec4";
+        case T::keyValueType: return "keyValue";
+    }
+    return "?";
+}
+
+// Walks the serialized buffer with the same rules the deserializer uses,
+// printing a human-readable breakdown of every field.
+static void annotate(const std::vector<Byte>& v) {
+    ReadCursor c { v.data(), v.data() + v.size() };
+
+    std::uint32_t count;
+    if (!readU32LE(c, count)) { std::printf("  bad count\n"); return; }
+    std::printf("  entryCount = %u\n", count);
+
+    for (std::uint32_t i = 0; i < count; i++) {
+        std::printf("\n  [entry %u]\n", i);
+
+        std::uint32_t keySize;
+        readU32LE(c, keySize);
+        std::printf("    keySize   = %u\n", keySize);
+
+        std::string key((const char*)c.current, keySize);
+        c.current += keySize;
+        std::printf("    key       = \"%s\"\n", key.c_str());
+
+        std::uint32_t rawType;
+        readU32LE(c, rawType);
+        std::printf("    type      = %u (%s)\n", rawType, typeName(rawType));
+
+        std::uint32_t payloadSize;
+        readU32LE(c, payloadSize);
+        std::printf("    payloadSz = %u\n", payloadSize);
+
+        // Show the raw payload bytes with type-specific decoding
+        std::printf("    payload   = ");
+        for (std::uint32_t b = 0; b < payloadSize && b < 16; b++)
+            std::printf("%02X ", c.current[b]);
+        if (payloadSize > 16) std::printf("...");
+        std::printf("\n");
+
+        // Decode a few common types for convenience
+        switch ((BinaryDataFormat::MapValueFormat::Types)rawType) {
+            case BinaryDataFormat::MapValueFormat::Types::intType: {
+                std::int32_t x = 0;
+                std::memcpy(&x, c.current, 4);
+                std::printf("    decoded   = int32 %d\n", x);
+                break;
+            }
+            case BinaryDataFormat::MapValueFormat::Types::stringType: {
+                std::printf("    decoded   = string \"%.*s\"\n",
+                            (int)payloadSize, (const char*)c.current);
+                break;
+            }
+            case BinaryDataFormat::MapValueFormat::Types::boolType: {
+                std::printf("    decoded   = bool %s\n",
+                            c.current[0] ? "true" : "false");
+                break;
+            }
+            default: break;
+        }
+
+        c.current += payloadSize;
+    }
+
+    // After all entries, the safe layer's checksum trailer
+    size_t consumed = c.current - v.data();
+    size_t remaining = v.size() - consumed;
+    std::printf("\n  consumed  = %zu / %zu bytes\n", consumed, v.size());
+    if (remaining == 8) {
+        std::uint64_t hash = 0;
+        for (int i = 0; i < 8; i++)
+            hash |= (std::uint64_t)c.current[i] << (i * 8);
+        std::printf("  trailer   = FNV-1a hash 0x%016llX\n",
+                    (unsigned long long)hash);
+    }
+}
+
+static void dump_serialized_format() {
+    std::printf("\n==============================================\n");
+    std::printf("  SERIALIZED FORMAT DUMP (files left on disk)\n");
+    std::printf("==============================================\n");
+
+    // Build a map with one of every kind of value.
+    BinaryDataFormat m;
+    m.setInt32  ("i32",    -123);
+    m.setUInt32 ("u32",    4000000000u);
+    m.setInt64  ("i64",    INT64_C(-9000000000000000000));
+    m.setUInt64 ("u64",    UINT64_C(18000000000000000000));
+    m.setFloat  ("f32",    3.5f);
+    m.setDouble ("f64",    -2.71828);
+    m.setBool   ("b",      true);
+    m.setChar   ("c",      'Z');
+    m.setUChar  ("uc",     200);
+    m.setString ("s",      "hello");
+    m.setVec2   ("v2",     1.0f, 2.0f);
+    m.setVec3   ("v3",     1.0f, 2.0f, 3.0f);
+    m.setIVec4  ("iv4",    1, 2, 3, 4);
+    m.setRawBytes("raw",   {0xDE, 0xAD, 0xBE, 0xEF});
+
+    // Serialize
+    std::vector<Byte> payload;
+    Errors err = m.serializeToFileData(payload);
+    if (err != noError) {
+        std::printf("serialize failed: %s\n", getErrorString(err));
+        return;
+    }
+
+    // Dump the payload (without the checksum trailer)
+    hexdump(payload, "serialized payload (no checksum yet)");
+    annotate(payload);
+
+    // Save through the full safe pipeline — this adds the checksum trailer
+    // and writes two files.
+    const char* name = "dump";   // will produce dump1.bin and dump2.bin
+    err = safeSave(m, name, false);
+    if (err != noError) {
+        std::printf("\nsafeSave failed: %s\n", getErrorString(err));
+        return;
+    }
+
+    // Read both files back and dump them, including the trailer
+    for (const char* file : {"dump1.bin", "dump2.bin"}) {
+        std::vector<Byte> bytes;
+        if (readEntireFile(bytes, file) == noError) {
+            char label[64];
+            std::snprintf(label, sizeof(label), "%s (with checksum trailer)", file);
+            hexdump(bytes, label);
+            annotate(bytes);
+        }
+    }
+
+    std::printf("\nFiles written and NOT cleaned up:\n");
+    std::printf("  dump1.bin  — primary\n");
+    std::printf("  dump2.bin  — backup (byte-identical to dump1.bin)\n");
+    std::printf("\nOpen these in a hex editor. Compare dump1.bin to dump2.bin.\n");
+    std::printf("Both should be payload + 8-byte FNV-1a hash trailer.\n");
+}
 
 // ---------------------------------------------------------------------------
 // main
@@ -1449,6 +1643,7 @@ int main() {
     test_bridge_both_corrupt();
     test_bridge_overwrite();
 
+    dump_serialized_format();
 
     if (g_failures == 0) std::printf("\nALL PASS\n");
     else                 std::printf("\n%d FAILURES\n", g_failures);
