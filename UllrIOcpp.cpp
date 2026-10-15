@@ -1290,22 +1290,571 @@ namespace UllrIOcpp
     //SERIALIZER AND DESERIALIZER
     //==================================
 
-    Errors BinaryDataFormat::deserializeFromFileData(Byte data, size_t size)
+    //PRIMITIVE READERS
+    bool canRead(const ReadCursor& cursor, size_t amount)
     {
-        //reset current object in case of previous read fail
-        *this = {};
+        size_t remaining = cursor.end - cursor.current;
+        return remaining >= amount;
+    }
 
-        std::string currentName = {};
+    bool readByte(ReadCursor& cursor, Byte& value)
+    {
+        if (!canRead(cursor, sizeof(value)))
+            return false;
 
-        for (Byte byte {data}; byte < data; byte++)
+        value = *cursor.current;
+        cursor.current += sizeof(value);
+        return true;
+    }
+    bool readU32LE(ReadCursor& cursor, std::uint32_t& value)
+    {
+
+        if (!canRead(cursor, sizeof(value)))
+            return false;
+
+        //0 So the bitwise OR write the bits correctly
+        std::uint32_t result = 0;
+
+        for (size_t i = 0; i < sizeof(result); ++i)
         {
-            bool readingName = true;
-
-            if (byte == 0)
-                readingName = false;
-            else
-                currentName.push_back(byte);
+            Byte byte = cursor.current[i]; //because current is a pointer we can use [] operator like *(cursor.current + i)
+            //The sizeof is getting the bytes but we must multiply by the bits inside a byte
+            result |= static_cast<std::uint32_t>(byte) << (i * 8);
         }
+
+        value = result;
+
+        cursor.current += sizeof(result);
+
+        return true;
+    }
+
+    bool readI32LE( ReadCursor& cursor, std::int32_t& value)
+    {
+        std::uint32_t raw;
+
+        if (!readU32LE(cursor, raw))
+            return false;
+
+        value = static_cast<std::int32_t>(raw);
+        return true;
+    }
+
+    bool readU64LE( ReadCursor& cursor, std::uint64_t& value)
+    {
+        if (!canRead(cursor, sizeof(std::uint64_t)))
+            return false;
+
+        std::uint64_t result = 0;
+
+        for (size_t i = 0; i < sizeof(result); ++i)
+        {
+            result |=
+                static_cast<std::uint64_t>(cursor.current[i])
+                << (i * 8);
+        }
+
+        value = result;
+        cursor.current += sizeof(result);
+
+        return true;
+    }
+
+    bool readI64LE( ReadCursor& cursor, std::int64_t& value)
+    {
+        std::uint64_t raw;
+
+        if (!readU64LE(cursor, raw))
+            return false;
+
+        value = static_cast<std::int64_t>(raw);
+        return true;
+    }
+
+    bool readFloatLE( ReadCursor& cursor, float& value)
+    {
+        static_assert(sizeof(float) == sizeof(std::uint32_t));
+
+        std::uint32_t raw;
+
+        if (!readU32LE(cursor, raw))
+            return false;
+
+        value = std::bit_cast<float>(raw);
+        return true;
+    }
+
+    bool readDoubleLE( ReadCursor& cursor, double& value)
+    {
+        static_assert(sizeof(double) == sizeof(std::uint64_t));
+
+        std::uint64_t raw;
+
+        if (!readU64LE(cursor, raw))
+            return false;
+
+        value = std::bit_cast<double>(raw);
+        return true;
+    }
+
+    //PRIMITIVE WRITERS
+    void writeByte( std::vector<Byte>& output, Byte value)
+    {
+        output.push_back(value);
+    }
+
+    void writeU32LE( std::vector<Byte>& output, std::uint32_t value)
+    {
+        for (size_t i = 0; i < sizeof(value); ++i)
+        {
+            output.push_back( static_cast<Byte>( (value >> (i * 8)) & 0xFF));
+        }
+    }
+
+    void writeI32LE( std::vector<Byte>& output, std::int32_t value)
+    {
+        writeU32LE( output, static_cast<std::uint32_t>(value));
+    }
+
+    void writeU64LE( std::vector<Byte>& output, std::uint64_t value)
+    {
+        for (size_t i = 0; i < sizeof(value); ++i)
+        {
+            output.push_back( static_cast<Byte>( (value >> (i * 8)) & 0xFF));
+        }
+    }
+
+    void writeI64LE( std::vector<Byte>& output, std::int64_t value)
+    {
+        writeU64LE( output, static_cast<std::uint64_t>(value));
+    }
+
+    void writeFloatLE( std::vector<Byte>& output, float value)
+    {
+        static_assert(sizeof(float) == sizeof(std::uint32_t));
+
+        std::uint32_t raw = std::bit_cast<std::uint32_t>(value);
+
+        writeU32LE(output, raw);
+    }
+
+    void writeDoubleLE( std::vector<Byte>& output, double value)
+    {
+        static_assert(sizeof(double) == sizeof(std::uint64_t));
+
+        std::uint64_t raw = std::bit_cast<std::uint64_t>(value);
+
+        writeU64LE(output, raw);
+    }
+
+    bool BinaryDataFormat::serializeMapValue(const MapValueFormat& value, std::vector<Byte>& output)
+    {
+        using Types = MapValueFormat::Types;
+
+        switch (value.type)
+        {
+            case Types::noType:
+                return true;
+
+            case Types::rawBytesType:
+            case Types::stringType:
+            case Types::keyValueType:
+            {
+                output.insert(output.end(), value.data.begin(), value.data.end());
+                return true;
+            }
+            case Types::boolType:
+            {
+                writeByte(output, value.primitives.boolData ? static_cast<Byte>(1) : static_cast<Byte>(0));
+                return true;
+            }
+            case Types::intType:
+                writeI32LE(output, value.primitives.int32Data);
+                return true;
+
+             case Types::uintType:
+                writeU32LE(output, value.primitives.uint32Data);
+                return true;
+
+            case Types::int64Type:
+                writeI64LE(output, value.primitives.int64Data);
+                return true;
+
+            case Types::uint64Type:
+                writeU64LE(output, value.primitives.uint64Data);
+                return true;
+
+            case Types::floatType:
+                writeFloatLE(output, value.primitives.floatData);
+                return true;
+
+            case Types::doubleType:
+                writeDoubleLE(output, value.primitives.doubleData);
+                return true;
+
+            case Types::charType:
+                writeByte( output, static_cast<Byte>( value.primitives.charData));
+                return true;
+
+            case Types::ucharType:
+                writeByte( output, static_cast<Byte>( value.primitives.uCharData));
+                return true;
+
+            case Types::vec2Type:
+                writeFloatLE(output, value.primitives.vec.x);
+                writeFloatLE(output, value.primitives.vec.y);
+                return true;
+
+            case Types::vec3Type:
+                writeFloatLE(output, value.primitives.vec.x);
+                writeFloatLE(output, value.primitives.vec.y);
+                writeFloatLE(output, value.primitives.vec.z);
+                return true;
+
+            case Types::vec4Type:
+                writeFloatLE(output, value.primitives.vec.x);
+                writeFloatLE(output, value.primitives.vec.y);
+                writeFloatLE(output, value.primitives.vec.z);
+                writeFloatLE(output, value.primitives.vec.w);
+                return true;
+
+            case Types::ivec2Type:
+                writeI32LE(output, value.primitives.ivec.x);
+                writeI32LE(output, value.primitives.ivec.y);
+                return true;
+
+            case Types::ivec3Type:
+                writeI32LE(output, value.primitives.ivec.x);
+                writeI32LE(output, value.primitives.ivec.y);
+                writeI32LE(output, value.primitives.ivec.z);
+                return true;
+
+            case Types::ivec4Type:
+                writeI32LE(output, value.primitives.ivec.x);
+                writeI32LE(output, value.primitives.ivec.y);
+                writeI32LE(output, value.primitives.ivec.z);
+                writeI32LE(output, value.primitives.ivec.w);
+                return true;
+        }
+    }
+
+    bool BinaryDataFormat::deserializeMapValue( MapValueFormat::Types type, ReadCursor& cursor, MapValueFormat& value)
+    {
+        using Types = MapValueFormat::Types;
+
+        ReadCursor tempCursor = cursor;
+
+        MapValueFormat result;
+        result.type = type;
+
+        switch (type)
+        {
+            case Types::noType:
+                break;
+
+            case Types::rawBytesType:
+            case Types::stringType:
+            case Types::keyValueType:
+            {
+                result.data.assign( tempCursor.current, tempCursor.end);
+                tempCursor.current = tempCursor.end;
+                break;
+            }
+
+            case Types::boolType:
+            {
+                Byte raw;
+
+                if (!readByte(tempCursor, raw))
+                    return false;
+
+                if (raw > 1)
+                    return false;
+
+                result.primitives.boolData = raw != 0;
+                break;
+            }
+
+            case Types::intType:
+            {
+                if (!readI32LE( tempCursor, result.primitives.int32Data))
+                    return false;
+
+                break;
+            }
+
+            case Types::uintType:
+            {
+                if (!readU32LE( tempCursor, result.primitives.uint32Data))
+                    return false;
+
+                break;
+            }
+
+            case Types::int64Type:
+            {
+                if (!readI64LE(
+                        tempCursor,
+                        result.primitives.int64Data))
+                    return false;
+
+                break;
+            }
+
+            case Types::uint64Type:
+            {
+                if (!readU64LE( tempCursor, result.primitives.uint64Data))
+                    return false;
+
+                break;
+            }
+
+            case Types::floatType:
+            {
+                if (!readFloatLE( tempCursor, result.primitives.floatData))
+                    return false;
+
+                break;
+            }
+
+            case Types::doubleType:
+            {
+                if (!readDoubleLE( tempCursor, result.primitives.doubleData))
+                    return false;
+
+                break;
+            }
+
+            case Types::charType:
+            {
+                Byte raw;
+
+                if (!readByte(tempCursor, raw))
+                    return false;
+
+                result.primitives.charData = static_cast<char>(raw);
+
+                break;
+            }
+
+            case Types::ucharType:
+            {
+                Byte raw;
+
+                if (!readByte(tempCursor, raw))
+                    return false;
+
+                result.primitives.uCharData = static_cast<unsigned char>(raw);
+
+                break;
+            }
+
+            case Types::vec2Type:
+            {
+                if (!readFloatLE(tempCursor, result.primitives.vec.x))
+                    return false;
+
+                if (!readFloatLE(tempCursor, result.primitives.vec.y))
+                    return false;
+
+                break;
+            }
+
+            case Types::vec3Type:
+            {
+                if (!readFloatLE(tempCursor, result.primitives.vec.x))
+                    return false;
+
+                if (!readFloatLE(tempCursor, result.primitives.vec.y))
+                    return false;
+
+                if (!readFloatLE(tempCursor, result.primitives.vec.z))
+                    return false;
+
+                break;
+            }
+
+            case Types::vec4Type:
+            {
+                if (!readFloatLE(tempCursor, result.primitives.vec.x))
+                    return false;
+
+                if (!readFloatLE(tempCursor, result.primitives.vec.y))
+                    return false;
+
+                if (!readFloatLE(tempCursor, result.primitives.vec.z))
+                    return false;
+
+                if (!readFloatLE(tempCursor, result.primitives.vec.w))
+                    return false;
+
+                break;
+            }
+
+            case Types::ivec2Type:
+            {
+                if (!readI32LE(tempCursor, result.primitives.ivec.x))
+                    return false;
+
+                if (!readI32LE(tempCursor, result.primitives.ivec.y))
+                    return false;
+
+                break;
+            }
+
+            case Types::ivec3Type:
+            {
+                if (!readI32LE(tempCursor, result.primitives.ivec.x))
+                    return false;
+
+                if (!readI32LE(tempCursor, result.primitives.ivec.y))
+                    return false;
+
+                if (!readI32LE(tempCursor, result.primitives.ivec.z))
+                    return false;
+
+                break;
+            }
+
+            case Types::ivec4Type:
+            {
+                if (!readI32LE(tempCursor, result.primitives.ivec.x))
+                    return false;
+
+                if (!readI32LE(tempCursor, result.primitives.ivec.y))
+                    return false;
+
+                if (!readI32LE(tempCursor, result.primitives.ivec.z))
+                    return false;
+
+                if (!readI32LE(tempCursor, result.primitives.ivec.w))
+                    return false;
+
+                break;
+            }
+
+            default:
+                return false;
+        }
+
+        // The payload must be consumed exactly.
+        if (tempCursor.current != tempCursor.end)
+            return false;
+
+        value = std::move(result);
+        cursor = tempCursor;
+
+        return true;
+    }
+
+    //using u32 bits for the header (entreCount, keySize, type, payloadSize)
+    Errors BinaryDataFormat::serializeToFileData(std::vector<Byte>& output)
+    {
+        if (umData.size() > UINT32_MAX)
+            return fileSizeNotMatch;
+
+        std::vector<Byte> result;
+
+        writeU32LE(result, static_cast<uint32_t>(umData.size()));
+
+        for (const auto& [key, value] : umData)
+        {
+            if (key.size() > UINT32_MAX)
+                return fileSizeNotMatch;
+
+            writeU32LE(result, static_cast<uint32_t>(key.size()));
+
+            result.insert(result.end(), key.begin(), key.end());
+
+            writeU32LE(result, static_cast<uint32_t>(value.type));
+
+            std::vector<Byte> payload;
+
+            if (!serializeMapValue(value, payload))
+                return couldNotParseData;
+
+            if (payload.size() > UINT32_MAX)
+                return fileSizeNotMatch;
+
+            writeU32LE(result, static_cast<uint32_t>(payload.size()));
+
+            result.insert(result.end(), payload.begin(), payload.end());
+        }
+
+        output = std::move(result);
+        return noError;
+    }
+
+    Errors BinaryDataFormat::deserializeFromFileData(const Byte* data, size_t size)
+    {
+        if (data == nullptr && size != 0)
+            return couldNotParseData;
+
+        if (size < sizeof(std::uint32_t))
+            return fileSizeNotBigEnough;
+
+        ReadCursor cursor {data, data + size};
+
+        std::uint32_t entryCount;
+
+        if (!readU32LE(cursor, entryCount))
+            return fileSizeNotBigEnough;
+
+        std::unordered_map<std::string, BinaryDataFormat::MapValueFormat> result;
+
+        for (std::uint32_t i = 0; i < entryCount; ++i)
+        {
+            std::uint32_t keySize;
+
+            if (!readU32LE(cursor, keySize))
+                return fileSizeNotBigEnough;
+
+            if (!canRead(cursor, keySize))
+                return fileSizeNotBigEnough;
+
+            std::string key(reinterpret_cast<const char*>(cursor.current), keySize);
+
+            cursor.current += keySize;
+
+            std::uint32_t rawType;
+
+            if (!readU32LE(cursor, rawType))
+                return fileSizeNotBigEnough;
+
+            if (rawType > static_cast<std::uint32_t>(BinaryDataFormat::MapValueFormat::Types::keyValueType))
+                return couldNotParseData;
+
+            BinaryDataFormat::MapValueFormat::Types type = static_cast<BinaryDataFormat::MapValueFormat::Types>(rawType);
+
+            std::uint32_t payloadSize;
+
+            if (!readU32LE(cursor, payloadSize))
+                return fileSizeNotBigEnough;
+
+            if (!canRead(cursor, payloadSize))
+                return fileSizeNotBigEnough;
+
+            ReadCursor payloadCursor { cursor.current, cursor.current + payloadSize };
+
+            BinaryDataFormat::MapValueFormat value;
+
+            if (!BinaryDataFormat::deserializeMapValue(type, payloadCursor, value))
+                return couldNotParseData;
+
+            cursor.current += payloadSize;
+
+            auto [iterator, inserted] = result.emplace(std::move(key), std::move(value));
+
+            if (!inserted)
+                return dataFormatValueAlreadyExists;
+        }
+
+        if (cursor.current != cursor.end)
+            return fileSizeNotMatch;
+
+        umData = std::move(result);
+
+        return noError;
     }
 }
 

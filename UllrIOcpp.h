@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -48,6 +49,29 @@ namespace UllrIOcpp
 
     Errors safeSaveNoBackup(const std::vector<Byte>& data, const char* name);
     Errors safeLoadBackup(std::vector<Byte>& data, const char* name);
+
+    //helper functions and struct
+    struct ReadCursor
+    {
+        const Byte* current;
+        const Byte* end;
+    };
+    bool canRead(const ReadCursor& cursor, size_t amount);
+    bool readByte(ReadCursor& cursor, Byte& value);
+    bool readU32LE(ReadCursor& cursor, std::uint32_t& value);
+    bool readI32LE(ReadCursor& cursor, std::int32_t& value);
+    bool readU64LE(ReadCursor& cursor, std::uint64_t& value);
+    bool readI64LE(ReadCursor& cursor, std::int64_t& value);
+    bool readFloatLE(ReadCursor& cursor, float& value);
+    bool readDoubleLE(ReadCursor& cursor, double& value);
+
+    void writeByte(std::vector<Byte>& output, Byte value);
+    void writeU32LE(std::vector<Byte>& output, std::uint32_t value);
+    void writeI32LE(std::vector<Byte>& output, std::int32_t value);
+    void writeU64LE(std::vector<Byte>& output, std::uint64_t value);
+    void writeI64LE(std::vector<Byte>& output, std::int64_t value);
+    void writeFloatLE(std::vector<Byte>& output, float value);
+    void writeDoubleLE(std::vector<Byte>& output, double value);
 
     struct BinaryDataFormat
     {
@@ -118,10 +142,10 @@ namespace UllrIOcpp
 
                 struct IVec
                 {
-                    int x;
-                    int y;
-                    int z;
-                    int w;
+                    std::int32_t x;
+                    std::int32_t y;
+                    std::int32_t z;
+                    std::int32_t w;
                 } ivec;
 
             } primitives;
@@ -248,6 +272,13 @@ namespace UllrIOcpp
         Errors getKeyValue(std::string at, std::vector<Byte>& bytes);
 
         //SERIALIZER AND DESERIALIZER
-        Errors deserializeFromFileData(Byte data, size_t size);
+        //Cursor
+
+
+        static bool serializeMapValue(const MapValueFormat& value, std::vector<Byte>& output);
+        static bool deserializeMapValue(MapValueFormat::Types type, ReadCursor& cursor, MapValueFormat& value);
+
+        Errors serializeToFileData(std::vector<Byte>& output);
+        Errors deserializeFromFileData(const Byte* data, size_t size);
     };
 }
